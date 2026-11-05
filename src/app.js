@@ -2,12 +2,16 @@ const express = require('express');
 const path = require('path');
 const { randomUUID } = require('node:crypto');
 const pool = require('./db');
+const { requireApiKey } = require('./auth');
 const { validateReset, validateNewBooking, formatBooking } = require('./validation');
 
 const app = express();
 app.disable('x-powered-by');
-app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// Check the API key before parsing JSON. Every API request without a valid key gets 401.
+app.use(['/reset', '/slots', '/bookings'], requireApiKey);
+app.use(express.json({ limit: '1mb' }));
 
 // Helper: forward database errors into the JSON error handler.
 const asyncRoute = (handler) => (req, res, next) => {

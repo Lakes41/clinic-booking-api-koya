@@ -14,8 +14,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@neon/config": "^1.11.3",
-    "@neon/env": "^1.6.15",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
     "pg": "^8.16.3"

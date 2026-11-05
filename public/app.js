@@ -7,6 +7,7 @@ const confirmation = document.querySelector('#confirmation');
 const confirmationDetails = document.querySelector('#confirmation-details');
 const errorMessage = document.querySelector('#error-message');
 let selectedSlot = null;
+let apiKey = ''; // Do not embed a server secret in public JavaScript.
 
 function showError(message) {
   errorMessage.textContent = message;
@@ -20,7 +21,10 @@ function prettyTime(value) {
 }
 
 async function api(url, options = {}) {
-  const response = await fetch(url, options);
+  if (!apiKey) throw new Error('Enter your API key first.');
+  const headers = new Headers(options.headers || {});
+  headers.set('X-API-Key', apiKey);
+  const response = await fetch(url, { ...options, headers });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Request failed');
   return data;
@@ -29,6 +33,10 @@ async function api(url, options = {}) {
 async function loadSlots() {
   showError('');
   slotsContainer.textContent = 'Loading slots…';
+  if (!apiKey) {
+    slotsContainer.textContent = 'Enter your API key above to view appointments.';
+    return;
+  }
   try {
     const provider = providerInput.value;
     const url = provider ? `/slots?provider=${encodeURIComponent(provider)}` : '/slots';
@@ -109,6 +117,15 @@ form.addEventListener('submit', async (event) => {
     await loadSlots();
     showError(error.message);
   }
+});
+
+document.querySelector('#api-key-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  apiKey = document.querySelector('#api-key-input').value.trim();
+  selectedSlot = null;
+  submitButton.disabled = true;
+  selectedText.textContent = 'Select an available slot above to book it.';
+  loadSlots();
 });
 
 document.querySelector('#refresh').addEventListener('click', loadSlots);

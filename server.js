@@ -1,4 +1,7 @@
 require('dotenv').config();
+if (!process.env.API_KEY) {
+  throw new Error('API_KEY is missing. Add it to your .env file.');
+}
 const app = require('./src/app');
 
 const port = Number(process.env.PORT) || 3000;

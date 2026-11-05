@@ -16,6 +16,16 @@
     </header>
 
     <section class="card">
+      <h2>Connect to the booking API</h2>
+      <p class="muted">Enter the API key configured on the server. It is held in this page only until you refresh it.</p>
+      <form id="api-key-form">
+        <label for="api-key-input">API key</label>
+        <input id="api-key-input" type="password" required autocomplete="off" spellcheck="false">
+        <button type="submit" class="primary">Connect and load appointments</button>
+      </form>
+    </section>
+
+    <section class="card">
       <div class="section-title">
         <h2>Available appointments</h2>
         <button type="button" id="refresh">Refresh slots</button>
