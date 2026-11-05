@@ -29,7 +29,7 @@ async function executeIdempotent(client, key, body, operation) {
   );
 
   const saved = await client.query(
-    `SELECT request_hash, status_code, response_body
+    `SELECT request_hash, status_code, response_body, retry_after_seconds
      FROM idempotency_keys WHERE idempotency_key = $1 FOR UPDATE`,
     [key]
   );
@@ -38,14 +38,16 @@ async function executeIdempotent(client, key, body, operation) {
     return { status: 422, body: { error: 'Idempotency key reused with a different body' } };
   }
   if (record.status_code !== null) {
-    return { status: record.status_code, body: record.response_body };
+    return { status: record.status_code, body: record.response_body,
+      retryAfter: record.retry_after_seconds };
   }
 
   const outcome = await operation(client);
   await client.query(
-    `UPDATE idempotency_keys SET status_code = $2, response_body = $3::jsonb
+    `UPDATE idempotency_keys
+     SET status_code = $2, response_body = $3::jsonb, retry_after_seconds = $4
      WHERE idempotency_key = $1`,
-    [key, outcome.status, JSON.stringify(outcome.body)]
+    [key, outcome.status, JSON.stringify(outcome.body), outcome.retryAfter ?? null]
   );
   return outcome;
 }

@@ -35,6 +35,10 @@ async function api(url, options = {}) {
   if (!response.ok) {
     const error = new Error(data.error || 'Request failed');
     error.status = response.status;
+    const retryAfter = response.headers.get('Retry-After');
+    if (response.status === 429 && retryAfter) {
+      error.message += ` Please try again in ${retryAfter} seconds.`;
+    }
     throw error;
   }
   return data;

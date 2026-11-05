@@ -15,7 +15,8 @@ async function request(path, { method = 'GET', body, apiKey = key, idempotencyKe
     headers,
     body: body === undefined ? undefined : JSON.stringify(body)
   });
-  return { status: response.status, data: await response.json() };
+  return { status: response.status, data: await response.json(),
+    retryAfter: response.headers.get('Retry-After') };
 }
 
 // IMPORTANT: this test replaces all slots and deletes every existing booking.
@@ -226,4 +227,84 @@ assert.equal(invalidLimit.status, 400);
 const invalidCursor = await request('/bookings?email=page@example.com&cursor=not-a-cursor');
 assert.equal(invalidCursor.status, 400);
 
-console.log('Levels 1–4 smoke test passed: authentication, validation, booking, cancellation, concurrency (1/12), idempotent replay, same-key concurrency (8/8), and cursor pagination.');
+// Level 5: failed requests count towards each email's allowance.
+const rateSlots = Array.from({ length: 8 }, (_, i) => ({
+  id: `smoke-rate-slot-${i}`,
+  provider: 'Dr Limit',
+  start: new Date(Date.now() + (150 + i) * 60 * 60 * 1000).toISOString(),
+  end: new Date(Date.now() + (151 + i) * 60 * 60 * 1000).toISOString()
+}));
+const rateReset = await request('/reset', { method: 'POST', body: { slots: rateSlots } });
+assert.equal(rateReset.status, 200);
+for (let i = 0; i < 5; i++) {
+  const failed = await request('/bookings', {
+    method: 'POST',
+    body: { slot_id: 'missing-slot', name: `Invalid ${i}`, email: i % 2 ? ' LIMIT@Example.COM ' : 'limit@example.com' }
+  });
+  assert.equal(failed.status, 404, JSON.stringify(failed));
+}
+const sixth = await request('/bookings', {
+  method: 'POST',
+  body: { slot_id: rateSlots[0].id, name: 'Throttled Patient', email: 'LIMIT@example.com' }
+});
+assert.equal(sixth.status, 429, JSON.stringify(sixth));
+assert.equal(typeof sixth.data.error, 'string');
+assert.match(sixth.retryAfter, /^\d+$/);
+assert.ok(Number(sixth.retryAfter) >= 1 && Number(sixth.retryAfter) <= 60);
+// A different email address has its own independent allowance.
+const unaffected = await request('/bookings', {
+  method: 'POST',
+  body: { slot_id: rateSlots[0].id, name: 'Another Patient', email: 'different@example.com' }
+});
+assert.equal(unaffected.status, 201, JSON.stringify(unaffected));
+
+// Concurrency protection also applies to the rate limit, even across slots.
+await request('/reset', { method: 'POST', body: { slots: rateSlots } });
+const simultaneous = await Promise.all(Array.from({ length: 7 }, (_, i) =>
+  request('/bookings', {
+    method: 'POST',
+    body: { slot_id: rateSlots[i].id, name: `Burst ${i}`, email: 'BURST@example.com' }
+  })
+));
+assert.equal(simultaneous.filter(r => r.status === 201).length, 5, JSON.stringify(simultaneous));
+assert.equal(simultaneous.filter(r => r.status === 429).length, 2, JSON.stringify(simultaneous));
+assert.ok(simultaneous.filter(r => r.status === 429)
+  .every(r => /^\d+$/.test(r.retryAfter)));
+
+// A genuine idempotent replay has the same status/ID despite the rate cap.
+await request('/reset', { method: 'POST', body: { slots: rateSlots } });
+const persistentKey = 'smoke-level5-replay';
+const originalBody = {
+  slot_id: rateSlots[0].id, name: 'Replay Patient', email: 'replay@example.com'
+};
+const original = await request('/bookings', {
+  method: 'POST', body: originalBody, idempotencyKey: persistentKey
+});
+assert.equal(original.status, 201);
+for (let i = 0; i < 5; i++) {
+  await request('/bookings', {
+    method: 'POST',
+    body: { slot_id: 'absent', name: `Bad ${i}`, email: 'replay@example.com' }
+  });
+}
+const unchangedReplay = await request('/bookings', {
+  method: 'POST', body: originalBody, idempotencyKey: persistentKey
+});
+assert.equal(unchangedReplay.status, 201);
+assert.deepEqual(unchangedReplay.data, original.data);
+
+// A new key that receives 429 must replay the original 429 + Retry-After.
+const blockedKey = 'smoke-level5-429-replay';
+const blockedBody = {
+  slot_id: rateSlots[1].id, name: 'Rate Limited', email: 'replay@example.com'
+};
+const blocked = await request('/bookings', {
+  method: 'POST', body: blockedBody, idempotencyKey: blockedKey
+});
+assert.equal(blocked.status, 429, JSON.stringify(blocked));
+const blockedReplay = await request('/bookings', {
+  method: 'POST', body: blockedBody, idempotencyKey: blockedKey
+});
+assert.deepEqual(blockedReplay, blocked);
+
+console.log('Levels 1–5 smoke test passed: authentication, validation, booking, cancellation, concurrency (1/12), idempotent replay (8/8), cursor pagination, rolling rate limit (5 allowed, sixth 429), and seven-request concurrent burst (5/7).');

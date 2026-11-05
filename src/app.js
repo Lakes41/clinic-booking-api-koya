@@ -6,6 +6,7 @@ const { requireApiKey } = require('./auth');
 const { validateReset, validateNewBooking, formatBooking } = require('./validation');
 const { executeIdempotent } = require('./idempotency');
 const { parseBookingsQuery, makeCursor } = require('./pagination');
+const { normaliseAttemptEmail, chargeBookingAttempt } = require('./rate-limit');
 
 const app = express();
 app.disable('x-powered-by');
@@ -29,6 +30,7 @@ app.post('/reset', asyncRoute(async (req, res) => {
   try {
     await client.query('BEGIN');
     await client.query('DELETE FROM idempotency_keys');
+    await client.query('DELETE FROM booking_attempts');
     await client.query('DELETE FROM bookings');
     await client.query('DELETE FROM slots');
     for (const slot of result.slots) {
@@ -104,15 +106,21 @@ async function createBooking(database, body) {
   return { status: 201, body: formatBooking(created.rows[0]) };
 }
 
-// Level 4: a repeated Idempotency-Key and identical JSON body must replay the
-// exact original HTTP response. A changed body with that key returns 422.
+// Level 5: a new booking attempt consumes a per-email allowance, even when
+// validation later fails (400), the slot is unknown (404), or booked (409).
+// Replays of an already-completed Idempotency-Key do not start a new booking
+// operation and return their original response without consuming allowance.
+async function attemptBooking(client, body) {
+  const throttled = await chargeBookingAttempt(client, normaliseAttemptEmail(body));
+  if (throttled) return throttled;
+  return createBooking(client, body);
+}
+
+// Level 4: identical requests with the same key replay the original outcome.
+// Level 5: rate checks run only when a genuinely new booking operation begins.
 app.post('/bookings', asyncRoute(async (req, res) => {
   const key = req.get('Idempotency-Key');
-  if (key === undefined) {
-    const outcome = await createBooking(pool, req.body);
-    return res.status(outcome.status).json(outcome.body);
-  }
-  if (!key.trim() || key.length > 200) {
+  if (key !== undefined && (!key.trim() || key.length > 200)) {
     return res.status(400).json({ error: 'Invalid Idempotency-Key' });
   }
 
@@ -120,15 +128,22 @@ app.post('/bookings', asyncRoute(async (req, res) => {
   let outcome;
   try {
     await client.query('BEGIN');
-    outcome = await executeIdempotent(
-      client, key, req.body, (transaction) => createBooking(transaction, req.body)
-    );
+    outcome = key === undefined
+      ? await attemptBooking(client, req.body)
+      : await executeIdempotent(
+          client, key, req.body,
+          (transaction) => attemptBooking(transaction, req.body)
+        );
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
   } finally {
     client.release();
+  }
+
+  if (outcome.retryAfter !== undefined && outcome.retryAfter !== null) {
+    res.set('Retry-After', String(outcome.retryAfter));
   }
   return res.status(outcome.status).json(outcome.body);
 }));
