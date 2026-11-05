@@ -103,6 +103,32 @@ app.post('/bookings', asyncRoute(async (req, res) => {
   }
 }));
 
+// Level 3: cancel a confirmed booking atomically. The partial unique index
+// on bookings(slot_id) allows a new confirmed booking once this commits.
+app.delete('/bookings/:id', asyncRoute(async (req, res) => {
+  const cancelled = await pool.query(
+    `UPDATE bookings
+     SET status = 'cancelled'
+     WHERE id = $1 AND status = 'confirmed'
+     RETURNING id, slot_id, name, email, status, created_at`,
+    [req.params.id]
+  );
+
+  if (cancelled.rowCount > 0) {
+    return res.status(200).json(formatBooking(cancelled.rows[0]));
+  }
+
+  // If two cancellation requests arrive together, only one UPDATE succeeds.
+  const existing = await pool.query(
+    'SELECT status FROM bookings WHERE id = $1',
+    [req.params.id]
+  );
+  if (existing.rowCount === 0) {
+    return res.status(404).json({ error: 'Booking not found' });
+  }
+  return res.status(409).json({ error: 'Booking already cancelled' });
+}));
+
 // Level 1: get a booking by its ID.
 app.get('/bookings/:id', asyncRoute(async (req, res) => {
   const result = await pool.query(

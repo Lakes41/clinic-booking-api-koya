@@ -29,3 +29,5 @@ dt { font-weight: 700; margin-top: 10px; }
 dd { margin: 3px 0 0; overflow-wrap: anywhere; }
 .error { color: #9c1717; background: #fff0f0; padding: 15px; border: 1px solid #eab0b0; border-radius: 8px; }
 @media (max-width: 550px) { .slot { align-items: flex-start; flex-direction: column; } .section-title { flex-direction: column; } }
+
+#cancel-button { margin-top: 20px; border-color: #ca7070; color: #8c2525; }

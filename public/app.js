@@ -5,8 +5,12 @@ const form = document.querySelector('#booking-form');
 const submitButton = document.querySelector('#book-button');
 const confirmation = document.querySelector('#confirmation');
 const confirmationDetails = document.querySelector('#confirmation-details');
+const confirmationTitle = document.querySelector('#confirmation-title');
+const confirmationMessage = document.querySelector('#confirmation-message');
+const cancelButton = document.querySelector('#cancel-button');
 const errorMessage = document.querySelector('#error-message');
 let selectedSlot = null;
+let latestBookingId = null;
 let apiKey = ''; // Do not embed a server secret in public JavaScript.
 
 function showError(message) {
@@ -93,6 +97,11 @@ form.addEventListener('submit', async (event) => {
         email: document.querySelector('#patient-email').value
       })
     });
+    latestBookingId = booking.id;
+    confirmationTitle.textContent = 'Booking confirmed';
+    confirmationMessage.textContent = 'Your appointment has been reserved.';
+    cancelButton.hidden = false;
+    cancelButton.disabled = false;
     confirmationDetails.replaceChildren();
     for (const [label, value] of [
       ['Booking ID', booking.id],
@@ -115,6 +124,27 @@ form.addEventListener('submit', async (event) => {
   } catch (error) {
     submitButton.disabled = false;
     await loadSlots();
+    showError(error.message);
+  }
+});
+
+cancelButton.addEventListener('click', async () => {
+  if (!latestBookingId) return;
+  cancelButton.disabled = true;
+  showError('');
+  try {
+    const booking = await api(`/bookings/${encodeURIComponent(latestBookingId)}`, {
+      method: 'DELETE'
+    });
+    confirmationTitle.textContent = 'Booking cancelled';
+    confirmationMessage.textContent = 'This appointment is available to book again.';
+    const status = confirmationDetails.querySelector('dd:nth-of-type(4)');
+    if (status) status.textContent = booking.status;
+    cancelButton.hidden = true;
+    latestBookingId = null;
+    await loadSlots();
+  } catch (error) {
+    cancelButton.disabled = false;
     showError(error.message);
   }
 });

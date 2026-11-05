@@ -71,4 +71,47 @@ const repeated = await request('/bookings', {
 assert.equal(repeated.status, 409);
 const after = await request('/slots');
 assert.equal(after.data.slots[1].available, false);
-console.log('Levels 1 and 2 smoke test passed: API key, validation, reset, list, book, lookup and duplicate prevention.');
+// Level 3: cancel a booking, verify the state and freed slot, then rebook it.
+const cancelled = await request(`/bookings/${created.data.id}`, { method: 'DELETE' });
+assert.equal(cancelled.status, 200, JSON.stringify(cancelled));
+assert.equal(cancelled.data.status, 'cancelled');
+assert.equal(cancelled.data.id, created.data.id);
+assert.equal(cancelled.data.created_at, created.data.created_at);
+const cancelledLookup = await request(`/bookings/${created.data.id}`);
+assert.equal(cancelledLookup.status, 200);
+assert.deepEqual(cancelledLookup.data, cancelled.data);
+const duplicateCancel = await request(`/bookings/${created.data.id}`, { method: 'DELETE' });
+assert.equal(duplicateCancel.status, 409, JSON.stringify(duplicateCancel));
+const missingCancel = await request('/bookings/no-such-booking', { method: 'DELETE' });
+assert.equal(missingCancel.status, 404);
+const afterCancellation = await request('/slots');
+assert.equal(afterCancellation.data.slots[1].available, true);
+const rebook = await request('/bookings', {
+  method: 'POST', body: { slot_id: 'smoke-future-slot', name: 'Rebooking Patient', email: 'again@example.com' }
+});
+assert.equal(rebook.status, 201, JSON.stringify(rebook));
+assert.notEqual(rebook.data.id, created.data.id);
+
+// Level 3: race multiple distinct patients for one free slot.
+// The partial unique PostgreSQL index, not JavaScript memory, must enforce this.
+const raceSlot = {
+  id: 'smoke-concurrent-slot', provider: 'Dr Tests',
+  start: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+  end: new Date(Date.now() + 73 * 60 * 60 * 1000).toISOString()
+};
+const raceReset = await request('/reset', {
+  method: 'POST', body: { slots: [raceSlot] }
+});
+assert.equal(raceReset.status, 200, JSON.stringify(raceReset));
+const attempts = Array.from({ length: 12 }, (_, i) => request('/bookings', {
+  method: 'POST',
+  body: { slot_id: raceSlot.id, name: `Patient ${i}`, email: `race${i}@example.com` }
+}));
+const results = await Promise.all(attempts);
+const successful = results.filter(r => r.status === 201);
+const conflicts = results.filter(r => r.status === 409);
+assert.equal(successful.length, 1, JSON.stringify(results));
+assert.equal(conflicts.length, 11, JSON.stringify(results));
+const raceAvailability = await request('/slots');
+assert.equal(raceAvailability.data.slots[0].available, false);
+console.log('Levels 1–3 smoke test passed: API key, validation, bookings, cancellation, rebooking and 12 concurrent booking requests (1 created, 11 conflicts).');
