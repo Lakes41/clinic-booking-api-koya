@@ -31,3 +31,9 @@ dd { margin: 3px 0 0; overflow-wrap: anywhere; }
 @media (max-width: 550px) { .slot { align-items: flex-start; flex-direction: column; } .section-title { flex-direction: column; } }
 
 #cancel-button { margin-top: 20px; border-color: #ca7070; color: #8c2525; }
+
+.history-items { display: grid; gap: 10px; margin-top: 18px; }
+.history-item { border: 1px solid #d9e3eb; border-radius: 11px; padding: 15px; }
+.history-item strong, .history-item small { display: block; }
+.history-item small { color: #59677c; margin-top: 7px; overflow-wrap: anywhere; }
+#history-next { margin-top: 15px; }

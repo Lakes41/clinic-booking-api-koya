@@ -5,10 +5,11 @@ const base = process.env.API_URL || 'http://localhost:3000';
 const key = process.env.API_KEY;
 if (!key) throw new Error('Set API_KEY in .env before running the smoke test');
 
-async function request(path, { method = 'GET', body, apiKey = key } = {}) {
+async function request(path, { method = 'GET', body, apiKey = key, idempotencyKey } = {}) {
   const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (apiKey !== null) headers['X-API-Key'] = apiKey;
+  if (idempotencyKey !== undefined) headers['Idempotency-Key'] = idempotencyKey;
   const response = await fetch(new URL(path, base), {
     method,
     headers,
@@ -114,4 +115,115 @@ assert.equal(successful.length, 1, JSON.stringify(results));
 assert.equal(conflicts.length, 11, JSON.stringify(results));
 const raceAvailability = await request('/slots');
 assert.equal(raceAvailability.data.slots[0].available, false);
-console.log('Levels 1–3 smoke test passed: API key, validation, bookings, cancellation, rebooking and 12 concurrent booking requests (1 created, 11 conflicts).');
+// Level 4: idempotency must replay even after the booking has been cancelled.
+const idempotencySlot = {
+  id: 'smoke-idempotency-slot', provider: 'Dr Replay',
+  start: new Date(Date.now() + 96 * 60 * 60 * 1000).toISOString(),
+  end: new Date(Date.now() + 97 * 60 * 60 * 1000).toISOString()
+};
+await request('/reset', { method: 'POST', body: { slots: [idempotencySlot] } });
+const idempotencyBody = {
+  slot_id: idempotencySlot.id, name: 'Ada Obi', email: 'Ada@Example.com'
+};
+const firstKey = 'smoke-level4-key-one';
+const first = await request('/bookings', {
+  method: 'POST', body: idempotencyBody, idempotencyKey: firstKey
+});
+assert.equal(first.status, 201, JSON.stringify(first));
+const replay = await request('/bookings', {
+  method: 'POST', body: { email: 'Ada@Example.com', name: 'Ada Obi', slot_id: idempotencySlot.id },
+  idempotencyKey: firstKey
+});
+assert.equal(replay.status, 201, JSON.stringify(replay));
+assert.deepEqual(replay.data, first.data);
+const changed = await request('/bookings', {
+  method: 'POST', body: { ...idempotencyBody, name: 'Different Name' }, idempotencyKey: firstKey
+});
+assert.equal(changed.status, 422, JSON.stringify(changed));
+assert.equal(typeof changed.data.error, 'string');
+await request(`/bookings/${first.data.id}`, { method: 'DELETE' });
+const replayAfterCancel = await request('/bookings', {
+  method: 'POST', body: idempotencyBody, idempotencyKey: firstKey
+});
+assert.equal(replayAfterCancel.status, 201);
+assert.deepEqual(replayAfterCancel.data, first.data);
+
+// Many simultaneous retries using the SAME key all receive one response.
+await request('/reset', { method: 'POST', body: { slots: [idempotencySlot] } });
+const concurrentRetries = await Promise.all(Array.from({ length: 8 }, () =>
+  request('/bookings', {
+    method: 'POST', body: idempotencyBody,
+    idempotencyKey: 'smoke-level4-concurrent-key'
+  })
+));
+assert.ok(concurrentRetries.every((item) => item.status === 201), JSON.stringify(concurrentRetries));
+assert.ok(concurrentRetries.every((item) => item.data.id === concurrentRetries[0].data.id));
+
+// Even failures are replayed for the same key and body.
+const missingBody = { slot_id: 'not-a-slot', name: 'Ada', email: 'ada@example.com' };
+const missingFirst = await request('/bookings', {
+  method: 'POST', body: missingBody, idempotencyKey: 'smoke-level4-error-key'
+});
+const missingReplay = await request('/bookings', {
+  method: 'POST', body: missingBody, idempotencyKey: 'smoke-level4-error-key'
+});
+assert.equal(missingFirst.status, 404);
+assert.deepEqual(missingReplay, missingFirst);
+
+// Level 4: seed bookings for one person, plus a different person's booking.
+// Verify that pages do not overlap or omit any booking, and include cancelled bookings.
+const pagingSlots = Array.from({ length: 7 }, (_, i) => ({
+  id: `smoke-page-slot-${i}`,
+  provider: 'Dr Page',
+  start: new Date(Date.now() + (120 + i) * 60 * 60 * 1000).toISOString(),
+  end: new Date(Date.now() + (121 + i) * 60 * 60 * 1000).toISOString()
+}));
+await request('/reset', { method: 'POST', body: { slots: pagingSlots } });
+const pagingCreated = [];
+for (let i = 0; i < 6; i++) {
+  const response = await request('/bookings', {
+    method: 'POST',
+    body: {
+      slot_id: pagingSlots[i].id, name: `Page Patient ${i}`,
+      email: i === 5 ? 'other@example.com' : 'PAGE@Example.com'
+    }
+  });
+  assert.equal(response.status, 201, JSON.stringify(response));
+  pagingCreated.push(response.data);
+}
+const cancelledPageBooking = await request(`/bookings/${pagingCreated[1].id}`, { method: 'DELETE' });
+assert.equal(cancelledPageBooking.status, 200);
+const allPaged = [];
+let cursor = null;
+let pages = 0;
+do {
+  const query = new URLSearchParams({ email: 'page@EXAMPLE.com', limit: '2' });
+  if (cursor) query.set('cursor', cursor);
+  const page = await request(`/bookings?${query}`);
+  assert.equal(page.status, 200, JSON.stringify(page));
+  assert.ok(Array.isArray(page.data.bookings));
+  assert.ok(page.data.bookings.length <= 2);
+  allPaged.push(...page.data.bookings);
+  cursor = page.data.next_cursor;
+  pages++;
+  assert.ok(pages < 10, 'Cursor pagination loop did not end');
+} while (cursor !== null);
+assert.equal(allPaged.length, 5);
+assert.equal(new Set(allPaged.map((b) => b.id)).size, 5);
+assert.deepEqual(new Set(allPaged.map((b) => b.id)), new Set(pagingCreated.slice(0, 5).map((b) => b.id)));
+assert.equal(allPaged.find((b) => b.id === pagingCreated[1].id).status, 'cancelled');
+for (let i = 1; i < allPaged.length; i++) {
+  const previous = allPaged[i - 1];
+  const current = allPaged[i];
+  assert.ok(previous.created_at < current.created_at ||
+    (previous.created_at === current.created_at && previous.id < current.id));
+}
+const defaultLimit = await request('/bookings?email=page@example.com');
+assert.equal(defaultLimit.status, 200);
+assert.equal(defaultLimit.data.next_cursor, null);
+const invalidLimit = await request('/bookings?email=page@example.com&limit=51');
+assert.equal(invalidLimit.status, 400);
+const invalidCursor = await request('/bookings?email=page@example.com&cursor=not-a-cursor');
+assert.equal(invalidCursor.status, 400);
+
+console.log('Levels 1–4 smoke test passed: authentication, validation, booking, cancellation, concurrency (1/12), idempotent replay, same-key concurrency (8/8), and cursor pagination.');

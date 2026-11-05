@@ -53,6 +53,19 @@
       <dl id="confirmation-details"></dl>
       <button type="button" id="cancel-button">Cancel this booking</button>
     </section>
+    <section class="card">
+      <h2>My bookings</h2>
+      <p class="muted">Find your appointment history, oldest first.</p>
+      <form id="history-form">
+        <label for="history-email">Email address</label>
+        <input id="history-email" type="email" autocomplete="email" required>
+        <label for="history-limit">Bookings per page</label>
+        <input id="history-limit" type="number" min="1" max="50" step="1" value="10" required>
+        <button type="submit" class="primary">Find my bookings</button>
+      </form>
+      <div id="history-items" class="history-items" aria-live="polite"></div>
+      <button type="button" id="history-next" hidden>Next page</button>
+    </section>
     <p role="alert" id="error-message" class="error" hidden></p>
   </main>
 </body>

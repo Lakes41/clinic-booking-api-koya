@@ -11,6 +11,8 @@ const cancelButton = document.querySelector('#cancel-button');
 const errorMessage = document.querySelector('#error-message');
 let selectedSlot = null;
 let latestBookingId = null;
+let pendingBookingRequest = null;
+let nextBookingsCursor = null;
 let apiKey = ''; // Do not embed a server secret in public JavaScript.
 
 function showError(message) {
@@ -30,7 +32,11 @@ async function api(url, options = {}) {
   headers.set('X-API-Key', apiKey);
   const response = await fetch(url, { ...options, headers });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Request failed');
+  if (!response.ok) {
+    const error = new Error(data.error || 'Request failed');
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 
@@ -88,15 +94,25 @@ form.addEventListener('submit', async (event) => {
   showError('');
   submitButton.disabled = true;
   try {
+    const body = JSON.stringify({
+      slot_id: selectedSlot.id,
+      name: document.querySelector('#patient-name').value,
+      email: document.querySelector('#patient-email').value
+    });
+    // Preserve the key if the network fails, so resubmission can safely
+    // retrieve the original response without creating another booking.
+    if (!pendingBookingRequest || pendingBookingRequest.body !== body) {
+      pendingBookingRequest = { body, key: crypto.randomUUID() };
+    }
     const booking = await api('/bookings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        slot_id: selectedSlot.id,
-        name: document.querySelector('#patient-name').value,
-        email: document.querySelector('#patient-email').value
-      })
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': pendingBookingRequest.key
+      },
+      body
     });
+    pendingBookingRequest = null;
     latestBookingId = booking.id;
     confirmationTitle.textContent = 'Booking confirmed';
     confirmationMessage.textContent = 'Your appointment has been reserved.';
@@ -122,6 +138,9 @@ form.addEventListener('submit', async (event) => {
     await loadSlots();
     confirmation.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (error) {
+    // A definitive HTTP error can be corrected by the user with a new key.
+    // A network failure is ambiguous, so keep the key for a safe retry.
+    if (error.status !== undefined) pendingBookingRequest = null;
     submitButton.disabled = false;
     await loadSlots();
     showError(error.message);
@@ -152,6 +171,7 @@ cancelButton.addEventListener('click', async () => {
 document.querySelector('#api-key-form').addEventListener('submit', (event) => {
   event.preventDefault();
   apiKey = document.querySelector('#api-key-input').value.trim();
+  pendingBookingRequest = null;
   selectedSlot = null;
   submitButton.disabled = true;
   selectedText.textContent = 'Select an available slot above to book it.';
@@ -161,3 +181,50 @@ document.querySelector('#api-key-form').addEventListener('submit', (event) => {
 document.querySelector('#refresh').addEventListener('click', loadSlots);
 providerInput.addEventListener('change', loadSlots);
 loadSlots();
+
+// Level 4: retrieve a person's bookings using opaque cursor pagination.
+const historyForm = document.querySelector('#history-form');
+const historyItems = document.querySelector('#history-items');
+const historyNextButton = document.querySelector('#history-next');
+
+async function loadBookingHistory(cursor = null) {
+  const email = document.querySelector('#history-email').value.trim();
+  const limit = document.querySelector('#history-limit').value;
+  const query = new URLSearchParams({ email, limit });
+  if (cursor) query.set('cursor', cursor);
+  historyItems.textContent = 'Loading bookings…';
+  historyNextButton.hidden = true;
+  try {
+    const response = await api(`/bookings?${query}`);
+    historyItems.replaceChildren();
+    if (!response.bookings.length) {
+      historyItems.textContent = 'No bookings found for this page.';
+    }
+    for (const booking of response.bookings) {
+      const item = document.createElement('div');
+      item.className = 'history-item';
+      const heading = document.createElement('strong');
+      heading.textContent = `${booking.name} · ${booking.status}`;
+      const details = document.createElement('small');
+      details.textContent = `Slot: ${booking.slot_id} · Booked: ${prettyTime(booking.created_at)} · ID: ${booking.id}`;
+      item.append(heading, details);
+      historyItems.append(item);
+    }
+    nextBookingsCursor = response.next_cursor;
+    historyNextButton.hidden = nextBookingsCursor === null;
+    showError('');
+  } catch (error) {
+    historyItems.textContent = 'Unable to retrieve bookings.';
+    showError(error.message);
+  }
+}
+
+historyForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  nextBookingsCursor = null;
+  loadBookingHistory();
+});
+
+historyNextButton.addEventListener('click', () => {
+  if (nextBookingsCursor) loadBookingHistory(nextBookingsCursor);
+});
