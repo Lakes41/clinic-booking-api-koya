@@ -1,0 +1,31 @@
+:root { color-scheme: light; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #15243a; background: #f4f7fb; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.container { max-width: 850px; padding: 42px 18px 70px; margin: auto; }
+.heading { margin-bottom: 27px; }
+.eyebrow { color: #106d78; font-size: 12px; font-weight: 800; letter-spacing: 0.12em; }
+h1 { font-size: clamp(28px, 5vw, 39px); line-height: 1.1; margin: 12px 0; }
+h2 { font-size: 20px; margin: 0 0 14px; }
+p { line-height: 1.5; }
+.heading p, .muted { color: #59677c; }
+.card { background: white; border: 1px solid #e2e8f0; border-radius: 15px; padding: 23px; margin-bottom: 17px; box-shadow: 0 5px 20px #0e295008; }
+.section-title { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
+label { font-size: 14px; font-weight: 600; display: block; margin: 16px 0 7px; }
+input { font: inherit; width: 100%; border: 1px solid #b7c5d3; border-radius: 9px; padding: 12px; }
+input:focus, button:focus-visible { outline: 3px solid #9bdbde; outline-offset: 2px; }
+button { font: inherit; padding: 10px 15px; border-radius: 9px; border: 1px solid #c6d5df; background: white; cursor: pointer; font-weight: 600; }
+button:hover:not(:disabled) { background: #edf7f8; }
+button:disabled { cursor: not-allowed; opacity: 0.5; }
+.primary { width: 100%; margin-top: 21px; padding: 13px; color: white; background: #087481; border-color: #087481; }
+.primary:hover:not(:disabled) { background: #065d68; }
+.slots { margin-top: 15px; display: grid; gap: 10px; }
+.slot { padding: 15px; border: 1px solid #d9e3eb; border-radius: 11px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.slot strong { display: block; }
+.slot small { color: #59677c; display: block; margin-top: 6px; }
+.slot button { flex: 0 0 auto; }
+.slot.selected { border-color: #087481; background: #eef8f8; }
+.confirmation { border-color: #7cb9a0; background: #f0faf4; }
+dt { font-weight: 700; margin-top: 10px; }
+dd { margin: 3px 0 0; overflow-wrap: anywhere; }
+.error { color: #9c1717; background: #fff0f0; padding: 15px; border: 1px solid #eab0b0; border-radius: 8px; }
+@media (max-width: 550px) { .slot { align-items: flex-start; flex-direction: column; } .section-title { flex-direction: column; } }

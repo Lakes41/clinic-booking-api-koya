@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clinic appointment bookings</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main class="container">
+    <header class="heading">
+      <div class="eyebrow">PATIENT APPOINTMENTS</div>
+      <h1>Book a clinic appointment</h1>
+      <p>Find a free appointment and reserve it in seconds.</p>
+    </header>
+
+    <section class="card">
+      <div class="section-title">
+        <h2>Available appointments</h2>
+        <button type="button" id="refresh">Refresh slots</button>
+      </div>
+      <label for="provider">Filter by provider</label>
+      <input id="provider" type="search" placeholder="e.g. Dr Ade">
+      <div id="slots" class="slots" aria-live="polite">Loading slots…</div>
+    </section>
+
+    <section class="card">
+      <h2>Your details</h2>
+      <p class="muted" id="selected-slot">Select an available slot above to book it.</p>
+      <form id="booking-form">
+        <label for="patient-name">Full name</label>
+        <input id="patient-name" name="name" required autocomplete="name">
+        <label for="patient-email">Email address</label>
+        <input id="patient-email" name="email" type="email" required autocomplete="email">
+        <button type="submit" class="primary" id="book-button" disabled>Confirm booking</button>
+      </form>
+    </section>
+
+    <section class="card confirmation" id="confirmation" hidden aria-live="polite">
+      <h2>Booking confirmed</h2>
+      <p>Your appointment has been reserved.</p>
+      <dl id="confirmation-details"></dl>
+    </section>
+    <p role="alert" id="error-message" class="error" hidden></p>
+  </main>
+</body>
+</html>
