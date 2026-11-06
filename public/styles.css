@@ -18,7 +18,26 @@ button:hover:not(:disabled) { background: #edf7f8; }
 button:disabled { cursor: not-allowed; opacity: 0.5; }
 .primary { width: 100%; margin-top: 21px; padding: 13px; color: white; background: #087481; border-color: #087481; }
 .primary:hover:not(:disabled) { background: #065d68; }
-.slots { margin-top: 15px; display: grid; gap: 10px; }
+.slots {
+  margin-top: 15px;
+  display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 10px;
+
+  /* Show around 5-6 appointment slots */
+  max-height: 470px;
+
+  /* Scroll inside the appointment list */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+
+  /* Panel appearance */
+  padding: 8px;
+  border: 1px solid #d9e3eb;
+  border-radius: 11px;
+  scrollbar-gutter: stable;
+}
 .slot { padding: 15px; border: 1px solid #d9e3eb; border-radius: 11px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .slot strong { display: block; }
 .slot small { color: #59677c; display: block; margin-top: 6px; }
